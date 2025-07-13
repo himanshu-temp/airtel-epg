@@ -2,30 +2,30 @@ name: Fetch Airtel EPG Daily
 
 on:
   schedule:
-    - cron: '0 2 * * *'  # runs daily at 7:30 AM IST (2:00 UTC)
-  workflow_dispatch:     # allows manual trigger
+    - cron: '0 6 * * *'  # every day at 6:00 AM UTC
+  workflow_dispatch:     # manual trigger
 
 jobs:
-  run-script:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: ⬇️ Checkout Repo
         uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v4
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
-        run: pip install requests
+      - name: 📦 Install Python Dependencies
+        run: pip install -r requirements.txt
 
-      - name: Run EPG Fetch Script
+      - name: 🏃 Run EPG Fetcher
         run: python airtel_epg_fetcher.py
 
-      - name: Upload Output
-        uses: actions/upload-artifact@v4
+      - name: 🚀 Upload airtel_epg_full.json
+        uses: actions/upload-artifact@v3
         with:
-          name: epg-output
+          name: airtel_epg
           path: airtel_epg_full.json
