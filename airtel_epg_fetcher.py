@@ -1,119 +1,59 @@
+import xml.etree.ElementTree as ET
 import requests
-from bs4 import BeautifulSoup
-from datetime import datetime
-import json
-import re
+import io
 
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+# Step 1: Download the EPG XML
+print("Downloading EPG...")
+url = "https://epg.pw/xmltv/epg_IN.xml"
+response = requests.get(url)
+if response.status_code != 200:
+    raise Exception(f"Failed to fetch EPG: {response.status_code}")
+data = response.content
 
-channel_categories = {
-    "Entertainment": [
-        "Sony Sab", "Star Plus", "Star Plus HD", "Colors SD", "Colors HD",
-        "Star Bharat", "Star Bharat HD", "Dangal", "SONY SAB", "Sony SAB HD",
-        "SET HD", "Sony Pal", "Zee TV", "Zee TV HD", "&TV HD", "Zee Anmol"
-    ],
-    "Movies": [
-        "Star Gold", "Star Gold HD", "Star Gold 2", "Star Gold 2 HD", "Star Gold Select",
-        "Star Gold Select HD", "Colors Cineplex", "Colors Cineplex HD",
-        "Colors Cineplex Superhit", "Colors Cineplex Bollywood", "SONY Max",
-        "Sony MAX HD", "Zee Cinema", "Zee Cinema HD", "&Pictures", "&Pictures HD",
-        "Zee Bollywood", "Zee Classic"
-    ],
-    "Kids": [
-        "Pogo Hindi", "Disney Channel", "Disney Junior", "Sonic Hindi", "Nick Hindi",
-        "Hungama", "Super Hungama", "Cartoon Network Hindi", "Discovery Kids 2", "Sony Yay"
-    ],
-    "Knowledge": [
-        "Discovery Channel Hindi", "History TV18 HD Hindi", "Animal Planet Hindi",
-        "Discovery Science", "Sony BBC Earth HD"
-    ],
-    "Sports": [
-        "Star Sports Khel", "Star Sports 1", "Star Sports 1 Hindi HD", "Star Sports 2",
-        "Star Sports 2 Hindi", "Star Sports 2 Hindi HD", "Star Sports Select 1",
-        "Star Sports Select 1 HD", "Star Sports Select 2", "Star Sports Select 2 HD",
-        "Sony TEN 1 SD", "Sony TEN 1 HD", "Sony TEN 2 SD", "Sony TEN 2 HD",
-        "Sony TEN 3 SD", "Sony TEN 3 HD", "Sony sports ten 4", "Sony sports ten 4 HD",
-        "Sony TEN 5 SD", "Sony TEN 5 HD"
-    ],
-    "News": [
-        "ABP News India", "News 18 India", "DD News", "India TV", "NDTV India",
-        "India news", "Aaj Tak", "Zee News"
-    ]
+# Step 2: Parse it
+print("Parsing XML...")
+tree = ET.parse(io.BytesIO(data))
+root = tree.getroot()
+
+# Step 3: Define desired channels
+keep = {
+    "Sony TEN 1", "Sony TEN 1 HD", "Sony TEN 2", "Sony TEN 2 HD",
+    "Sony TEN 3", "Sony TEN 3 HD", "Sony Sports TEN 4", "Sony Sports TEN 4 HD",
+    "Sony TEN 5", "Sony TEN 5 HD",
+    "SONY SAB", "Sony SAB HD", "SET HD", "Sony Pal",
+    "SONY Max", "Sony MAX HD", "Sony Yay", "Sony BBC Earth HD",
+    "Zee TV", "Zee TV HD", "&TV HD", "Zee Anmol",
+    "Zee Cinema", "Zee Cinema HD", "&Pictures", "&Pictures HD",
+    "Zee Bollywood", "Zee Classic", "Aaj Tak", "Zee News"
 }
 
-# ✅ Scrape Airtel live TV channel listing
-def fetch_all_airtel_channels():
-    print("🔍 Fetching Airtel channel list from website...")
-    url = "https://www.airtelxstream.in/livetv-channels"
-    res = requests.get(url, headers=HEADERS)
-    soup = BeautifulSoup(res.text, 'html.parser')
-    script = soup.find("script", string=re.compile("__INITIAL_STATE__"))
+# Normalize names (some entries may lack "HD"/"SD" in display-name)
+def match_channel(display_names):
+    for name in display_names:
+        name_lower = name.lower().replace("sd", "").replace("hd", "").strip()
+        for target in keep:
+            if name_lower in target.lower():
+                return True
+    return False
 
-    if not script:
-        raise Exception("❌ Could not find embedded JSON")
+# Step 4: Filter <channel> tags
+print("Filtering channels...")
+channel_ids = set()
+for chan in root.findall('channel'):
+    display_names = [d.text.strip() for d in chan.findall('display-name') if d.text]
+    if match_channel(display_names):
+        channel_ids.add(chan.get('id'))
+    else:
+        root.remove(chan)
 
-    match = re.search(r"window\.__INITIAL_STATE__\s*=\s*({.*});", script.string)
-    if not match:
-        raise Exception("❌ Failed to extract JSON")
+# Step 5: Filter <programme> tags
+print("Filtering programmes...")
+for prog in root.findall('programme'):
+    if prog.get('channel') not in channel_ids:
+        root.remove(prog)
 
-    try:
-        state_json = json.loads(match.group(1))
-        channels = state_json.get("channels", {}).get("allChannels", [])
-    except Exception as e:
-        raise Exception(f"❌ JSON parse error: {e}")
+# Step 6: Save filtered EPG
+print("Saving filtered_epg.xml")
+tree.write('filtered_epg.xml', encoding='utf-8', xml_declaration=True)
 
-    lookup = {}
-    for ch in channels:
-        name = ch.get("title", "").strip().lower()
-        slug = ch.get("slug")
-        ch_id = ch.get("id")
-        if name and slug and ch_id:
-            lookup[name] = {"slug": slug, "id": ch_id}
-
-    print(f"✅ Found {len(lookup)} channels from Airtel")
-    return lookup
-
-# 🔁 Get EPG for one channel
-def get_schedule(slug, ch_id):
-    url = f"https://www.airtelxstream.in/livetv-channels/{slug}/schedule/MWTV_LIVETVCHANNEL_{ch_id}"
-    res = requests.get(url, headers=HEADERS)
-    soup = BeautifulSoup(res.text, 'html.parser')
-    script_tag = soup.find("script", string=re.compile("__INITIAL_STATE__"))
-    if not script_tag:
-        return []
-
-    try:
-        json_text = re.search(r"window\.__INITIAL_STATE__\s*=\s*({.*});", script_tag.string).group(1)
-        data = json.loads(json_text)
-        programmes = list(data["epg"]["programmes"].values())[0]
-        return [{
-            "title": prog["title"],
-            "start": datetime.fromisoformat(prog["startTime"]).strftime("%I:%M %p"),
-            "end": datetime.fromisoformat(prog["endTime"]).strftime("%I:%M %p")
-        } for prog in programmes]
-    except Exception as e:
-        return [{"error": str(e)}]
-
-# 🎯 Main
-def run_epg_fetch():
-    channel_lookup = fetch_all_airtel_channels()
-    epg = {}
-
-    for category, channels in channel_categories.items():
-        epg[category] = {}
-        for name in channels:
-            key = name.lower().strip()
-            match = channel_lookup.get(key)
-            if match:
-                print(f"📺 Fetching schedule for: {name}")
-                epg[category][name] = get_schedule(match["slug"], match["id"])
-            else:
-                print(f"❌ Not found on Airtel: {name}")
-                epg[category][name] = []
-
-    with open("airtel_epg_full.json", "w", encoding="utf-8") as f:
-        json.dump(epg, f, indent=2, ensure_ascii=False)
-    print("✅ Saved EPG to airtel_epg_full.json")
-
-if __name__ == "__main__":
-    run_epg_fetch()
+print("✅ Done.")
