@@ -1,31 +1,33 @@
-name: Fetch Airtel EPG Daily
+name: Filter EPG
 
 on:
-  schedule:
-    - cron: '0 6 * * *'  # Runs daily at 6:00 AM UTC
   workflow_dispatch:
+  schedule:
+    - cron: '0 */6 * * *'  # every 6 hours
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: ⬇️ Checkout Repo
+      - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: 🐍 Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.12'
+          python-version: '3.x'
 
-      - name: 📦 Install Python Dependencies
-        run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: pip install requests
 
-      - name: 🏃 Run EPG Fetcher
-        run: python airtel_epg_fetcher.py
+      - name: Run EPG filter
+        run: python filter_epg.py
 
-      - name: 🚀 Upload airtel_epg_full.json
-        uses: actions/upload-artifact@v4
-        with:
-          name: airtel_epg
-          path: airtel_epg_full.json
+      - name: Commit filtered XML
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add filtered_epg.xml
+          git commit -m "Update filtered EPG"
+          git push
