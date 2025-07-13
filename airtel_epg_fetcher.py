@@ -6,7 +6,6 @@ import re
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-# 🎯 Your categorized channel list
 channel_categories = {
     "Entertainment": [
         "Sony Sab", "Star Plus", "Star Plus HD", "Colors SD", "Colors HD",
@@ -42,35 +41,39 @@ channel_categories = {
     ]
 }
 
-
+# ✅ Scrape Airtel live TV channel listing
 def fetch_all_airtel_channels():
     print("🔍 Fetching Airtel channel list from website...")
     url = "https://www.airtelxstream.in/livetv-channels"
     res = requests.get(url, headers=HEADERS)
     soup = BeautifulSoup(res.text, 'html.parser')
     script = soup.find("script", string=re.compile("__INITIAL_STATE__"))
+
     if not script:
         raise Exception("❌ Could not find embedded JSON")
 
-    json_match = re.search(r"window\.__INITIAL_STATE__\s*=\s*({.*});", script.string)
-    if not json_match:
-        raise Exception("❌ Failed to extract JSON data")
+    match = re.search(r"window\.__INITIAL_STATE__\s*=\s*({.*});", script.string)
+    if not match:
+        raise Exception("❌ Failed to extract JSON")
 
-    data = json.loads(json_match.group(1))
-    channels = data.get("channels", {}).get("allChannels", [])
+    try:
+        state_json = json.loads(match.group(1))
+        channels = state_json.get("channels", {}).get("allChannels", [])
+    except Exception as e:
+        raise Exception(f"❌ JSON parse error: {e}")
+
     lookup = {}
-
     for ch in channels:
         name = ch.get("title", "").strip().lower()
-        slug = ch.get("slug", "")
-        ch_id = ch.get("id", "")
+        slug = ch.get("slug")
+        ch_id = ch.get("id")
         if name and slug and ch_id:
             lookup[name] = {"slug": slug, "id": ch_id}
 
     print(f"✅ Found {len(lookup)} channels from Airtel")
     return lookup
 
-
+# 🔁 Get EPG for one channel
 def get_schedule(slug, ch_id):
     url = f"https://www.airtelxstream.in/livetv-channels/{slug}/schedule/MWTV_LIVETVCHANNEL_{ch_id}"
     res = requests.get(url, headers=HEADERS)
@@ -83,17 +86,15 @@ def get_schedule(slug, ch_id):
         json_text = re.search(r"window\.__INITIAL_STATE__\s*=\s*({.*});", script_tag.string).group(1)
         data = json.loads(json_text)
         programmes = list(data["epg"]["programmes"].values())[0]
-        return [
-            {
-                "title": prog["title"],
-                "start": datetime.fromisoformat(prog["startTime"]).strftime("%I:%M %p"),
-                "end": datetime.fromisoformat(prog["endTime"]).strftime("%I:%M %p")
-            } for prog in programmes
-        ]
+        return [{
+            "title": prog["title"],
+            "start": datetime.fromisoformat(prog["startTime"]).strftime("%I:%M %p"),
+            "end": datetime.fromisoformat(prog["endTime"]).strftime("%I:%M %p")
+        } for prog in programmes]
     except Exception as e:
         return [{"error": str(e)}]
 
-
+# 🎯 Main
 def run_epg_fetch():
     channel_lookup = fetch_all_airtel_channels()
     epg = {}
@@ -107,14 +108,12 @@ def run_epg_fetch():
                 print(f"📺 Fetching schedule for: {name}")
                 epg[category][name] = get_schedule(match["slug"], match["id"])
             else:
-                print(f"⚠️ Not found on Airtel: {name}")
+                print(f"❌ Not found on Airtel: {name}")
                 epg[category][name] = []
 
-    # Save output
     with open("airtel_epg_full.json", "w", encoding="utf-8") as f:
         json.dump(epg, f, indent=2, ensure_ascii=False)
-    print("✅ EPG saved to airtel_epg_full.json")
-
+    print("✅ Saved EPG to airtel_epg_full.json")
 
 if __name__ == "__main__":
     run_epg_fetch()
