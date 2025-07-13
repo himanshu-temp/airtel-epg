@@ -22,7 +22,7 @@ jobs:
         run: pip install requests
 
       - name: Run EPG filter
-        run: python filter_epg.py
+        run: python airtel_epg_fetcher.py
 
       - name: Commit filtered XML
         run: |
