@@ -9,25 +9,33 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write
+
     steps:
-      - name: Checkout repo
+      - name: 📥 Checkout repo
         uses: actions/checkout@v3
 
-      - name: Setup Python
+      - name: 🐍 Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
 
-      - name: Install dependencies
+      - name: 📦 Install dependencies
         run: pip install requests
 
-      - name: Run EPG filter
+      - name: ⚙️Run EPG filter
         run: python airtel_epg_fetcher.py
 
-      - name: Commit filtered XML
+      - name: ✅ Commit filtered XML
         run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add filtered_epg.xml
-          git commit -m "Update filtered EPG"
-          git push
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add Zee.m3u || echo "Nothing to add"
+          git commit -m "Auto update Zee.m3u" || echo "No changes"
+
+      - name: 📤 Push changes
+        uses: ad-m/github-push-action@v0.6.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: main
